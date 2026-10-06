@@ -59,9 +59,33 @@ async function retrieveContext({ resume, jobDescription, selfDescription, topK =
   const queryEmbedding = await embedText(query);
   if (queryEmbedding) for (const item of scored) item.score = cosine(queryEmbedding, localEmbeddings.get(item.doc.id)) * 0.65 + lexicalScore(query, `${item.doc.topic} ${item.doc.text}`) * 0.35;
 
-  const result = scored.sort((a, b) => b.score - a.score).slice(0, Number(topK)).map(({ doc }) => `[${doc.topic}] ${doc.text}`);
-  if (redis) await redis.set(cacheKey, JSON.stringify(result), { EX: 1800 });
+  const candidates = scored.sort((a,b) => b.score - a.score).slice(0, Math.max(Number(topK) * 5, 20));
+  let result;
+
+  try{
+    const reranked = await rerankDocuments(query, candidates);
+
+    result = reranked.slice(0, Number(topK)).map(({doc}) => ({
+      topic: doc.topic,
+      text: doc.text,
+    }));
+  }
+
+  catch(error) {
+    console.warn("Rerank failed");
+
+    result = candidates.slice(0, Number(topK)).map(({doc}) => ({
+      topic: doc.topic,
+      text: doc.text,
+    }));
+  }
+
+
   return result;
+
+  // const result = scored.sort((a, b) => b.score - a.score).slice(0, Number(topK)).map(({ doc }) => `[${doc.topic}] ${doc.text}`);
+  // if (redis) await redis.set(cacheKey, JSON.stringify(result), { EX: 1800 });
+  // return result;
 }
 
 module.exports = { retrieveContext };
